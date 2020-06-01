@@ -1,0 +1,16 @@
+{
+  "name": "shuaishuaiai-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "zip": "zip -r function.zip .",
+    "upload": "aws lambda update-function-code --function-name conversation-lambda --zip-file fileb://function.zip",
+    "deploy": "npm run zip && npm run upload"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "aws-sdk": "^2.686.0"
+  }
+}
