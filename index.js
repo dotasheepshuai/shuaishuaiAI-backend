@@ -5,32 +5,24 @@ const {isEmpty, random} = require('lodash');
 exports.handler = async (event) => {
     log(event);
     const input = event.queryStringParameters.input;
-    const output = await getAIResponse(input);
-    return getResponsePayload(output);
+    const output = event.queryStringParameters.output;
+
+    if (event.httpMethod === 'GET') {
+        const response = await getAIResponse(input);
+        return getResponsePayload(response);
+
+    } else if (event.httpMethod === 'POST') {
+        await setAIResponse(input, output);
+        return getResponsePayload('Success!');
+
+    } else {
+        return log(`event.httpMethod "${event.httpMethod}" is not supported`);
+    }
+
 };
 
 async function getAIResponse(input) {
-    const params = {
-        ExpressionAttributeValues: {
-            ":v1": {
-                S: input
-            }
-        },
-        KeyConditionExpression: "Question = :v1",
-        ProjectionExpression: "Answers",
-        TableName: 'Conversation'
-    };
-    const dynamodbResponses = await new Promise((resolve, reject) => {
-        dynamodb.query(params, (error, data) => {
-            if (error) {
-                log(error);
-                reject(error);
-            }
-            const responses = ((data.Items[0] || {}).Answers || {}).SS || [];
-            resolve(responses);
-        });
-    });
-    log(`Input is "${input}", dynamodb responses are "${JSON.stringify(dynamodbResponses)}"`);
+    const dynamodbResponses = await queryInput(input);
 
     // Stupid path
     if (isEmpty(dynamodbResponses)) {
@@ -46,6 +38,61 @@ async function getAIResponse(input) {
     return cleverOutput;
 }
 
+async function setAIResponse(input, output) {
+    const dynamodbResponses = await queryInput(input);
+    const newResponses = dynamodbResponses.concat(output);
+
+    const updateParams = {
+        ExpressionAttributeValues: {
+            ":v1": {
+                SS: newResponses
+            }
+        },
+        Key: {
+            "Question": {
+                S: input
+            }
+        },
+        UpdateExpression: "SET Answers = :v1",
+        TableName: 'Conversation'
+    };
+    await new Promise((resolve, reject) => {
+        dynamodb.updateItem(updateParams, (error) => {
+            if (error) {
+                log(error);
+                reject(error);
+            }
+            resolve();
+        });
+    });
+    return log(`Dynamodb responses for input "${input}" were updated to "${JSON.stringify(newResponses)}"`);
+}
+
+async function queryInput(input) {
+    const queryParams = {
+        ExpressionAttributeValues: {
+            ":v1": {
+                S: input
+            }
+        },
+        KeyConditionExpression: "Question = :v1",
+        ProjectionExpression: "Answers",
+        TableName: 'Conversation'
+    };
+    const dynamodbResponses = await new Promise((resolve, reject) => {
+        dynamodb.query(queryParams, (error, data) => {
+            if (error) {
+                log(error);
+                reject(error);
+            }
+            const responses = ((data.Items[0] || {}).Answers || {}).SS || [];
+            resolve(responses);
+        });
+    });
+    log(`Input is "${input}", dynamodb responses are "${JSON.stringify(dynamodbResponses)}"`);
+    return dynamodbResponses;
+}
+
 function getResponsePayload(text) {
     return {
         statusCode: 200,
@@ -57,5 +104,5 @@ function getResponsePayload(text) {
 }
 
 function log(text) {
-    console.log(text);
+    return console.log(text);
 }
