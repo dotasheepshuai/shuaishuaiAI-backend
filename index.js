@@ -1,6 +1,6 @@
 const AWS = require('aws-sdk');
 const dynamodb = new AWS.DynamoDB();
-const {isEmpty, random} = require('lodash');
+const {isEmpty, random, without} = require('lodash');
 
 exports.handler = async (event) => {
     log(event);
@@ -13,6 +13,10 @@ exports.handler = async (event) => {
 
     } else if (event.httpMethod === 'POST') {
         await setAIResponse(input, output);
+        return getResponsePayload('Success!');
+
+    } else if (event.httpMethod === 'DELETE') {
+        await deleteAIResponse(input, output);
         return getResponsePayload('Success!');
 
     } else {
@@ -42,30 +46,17 @@ async function setAIResponse(input, output) {
     const dynamodbResponses = await queryInput(input);
     const newResponses = dynamodbResponses.concat(output);
 
-    const updateParams = {
-        ExpressionAttributeValues: {
-            ":v1": {
-                SS: newResponses
-            }
-        },
-        Key: {
-            "Question": {
-                S: input
-            }
-        },
-        UpdateExpression: "SET Answers = :v1",
-        TableName: 'Conversation'
-    };
-    await new Promise((resolve, reject) => {
-        dynamodb.updateItem(updateParams, (error) => {
-            if (error) {
-                log(error);
-                reject(error);
-            }
-            resolve();
-        });
-    });
-    return log(`Dynamodb responses for input "${input}" were updated to "${JSON.stringify(newResponses)}"`);
+    await updateInput(input, newResponses);
+}
+
+async function deleteAIResponse(input, output) {
+    const dynamodbResponses = await queryInput(input);
+    let newResponses = without(dynamodbResponses, output);
+    if (isEmpty(newResponses)) {
+        newResponses = newResponses.concat(input.replace(/\?/g, '!'));
+    }
+
+    await updateInput(input, newResponses);
 }
 
 async function queryInput(input) {
@@ -91,6 +82,33 @@ async function queryInput(input) {
     });
     log(`Input is "${input}", dynamodb responses are "${JSON.stringify(dynamodbResponses)}"`);
     return dynamodbResponses;
+}
+
+async function updateInput(input, newResponses) {
+    const updateParams = {
+        ExpressionAttributeValues: {
+            ":v1": {
+                SS: newResponses
+            }
+        },
+        Key: {
+            "Question": {
+                S: input
+            }
+        },
+        UpdateExpression: "SET Answers = :v1",
+        TableName: 'Conversation'
+    };
+    await new Promise((resolve, reject) => {
+        dynamodb.updateItem(updateParams, (error) => {
+            if (error) {
+                log(error);
+                reject(error);
+            }
+            resolve();
+        });
+    });
+    return log(`Dynamodb responses for input "${input}" were updated to "${JSON.stringify(newResponses)}"`);
 }
 
 function getResponsePayload(text) {
