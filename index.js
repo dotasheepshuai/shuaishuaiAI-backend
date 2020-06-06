@@ -1,6 +1,6 @@
 const AWS = require('aws-sdk');
 const dynamodb = new AWS.DynamoDB();
-const {isEmpty, random, without} = require('lodash');
+const {isEmpty, random, without, uniq} = require('lodash');
 
 exports.handler = async (event) => {
     log(event);
@@ -44,7 +44,7 @@ async function getAIResponse(input) {
 
 async function setAIResponse(input, output) {
     const dynamodbResponses = await queryInput(input);
-    const newResponses = dynamodbResponses.concat(output);
+    const newResponses = uniq(dynamodbResponses.concat(output));
 
     await updateInput(input, newResponses);
 }
