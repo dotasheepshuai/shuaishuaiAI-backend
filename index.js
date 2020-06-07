@@ -1,19 +1,32 @@
 const AWS = require('aws-sdk');
 const dynamodb = new AWS.DynamoDB();
+const sns = new AWS.SNS({region: 'us-east-1'});
 const {isEmpty, random, without, uniq} = require('lodash');
 
 exports.handler = async (event) => {
     log(event);
+    const type = event.queryStringParameters.type;
     const input = event.queryStringParameters.input;
     const output = event.queryStringParameters.output;
+    const conversation = event.queryStringParameters.conversation;
+    const phone = event.queryStringParameters.phone;
 
     if (event.httpMethod === 'GET') {
         const response = await getAIResponse(input);
         return getResponsePayload(response);
 
     } else if (event.httpMethod === 'POST') {
-        await setAIResponse(input, output);
-        return getResponsePayload('Success!');
+        if (type === 'setairesponse') {
+            await setAIResponse(input, output);
+            return getResponsePayload('Success!');
+
+        } else if (type === 'sendconversation') {
+            await sendConversation(conversation, phone);
+            return getResponsePayload('Success!');
+
+        } else {
+            return log(`type "${type}" is not supported`);
+        }
 
     } else if (event.httpMethod === 'DELETE') {
         await deleteAIResponse(input, output);
@@ -202,4 +215,33 @@ function getResponsePayload(text) {
 
 function log(text) {
     return console.log(text);
+}
+
+async function sendConversation(conversation, phone) {
+    const _conversation = conversation.replace(/___/g, '\n');
+    if (_conversation.length > 240) {
+        return log('Cannot send conversation longer than 240 characters');
+    }
+    if (! /^\d{10}$/.test(phone)) {
+        return log('Phone number must be 10 digits');
+    }
+
+    return await sendMessage(_conversation, `\+1${phone}`);
+}
+
+async function sendMessage(message, target) {
+    const publishParams = {
+        Message: message,
+        PhoneNumber: target
+    };
+    await new Promise((resolve, reject) => {
+        sns.publish(publishParams, (error) => {
+            if (error) {
+                log(error);
+                reject(error);
+            }
+            resolve();
+        });
+    });
+    return log(`Sent message "${message}" to target "${target}"`);
 }
