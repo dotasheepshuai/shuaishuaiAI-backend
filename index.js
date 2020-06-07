@@ -26,48 +26,48 @@ exports.handler = async (event) => {
 };
 
 async function getAIResponse(input) {
-    const dynamodbResponses = await queryInput(input);
+    let dynamodbResponses = await queryInput(input);
 
-    // Stupid path
     if (isEmpty(dynamodbResponses)) {
-        const stupidOutput = input.replace(/\?/g, '!');
-        log(`Use stupid output "${stupidOutput}" because dynamodb responses are empty.`);
-        return stupidOutput;
+        log(`DynamoDB response for input "${input}" is empty. Will look for the most similar question to input "${input}"`);
+        const mostSimilarQuestion = await findMostSimilarQuestion(input);
+        dynamodbResponses = await queryInput(mostSimilarQuestion);
     }
 
-    // Clever path
     const randomNumber = random(dynamodbResponses.length-1);
-    const cleverOutput = dynamodbResponses[randomNumber];
-    log(`Pick the ${randomNumber}-th value from the list - "${cleverOutput}", as the clever output`);
-    return cleverOutput;
+    const output = dynamodbResponses[randomNumber];
+    log(`Pick the ${randomNumber}-th value from the list "${output}" as the output`);
+    return output;
 }
 
 async function setAIResponse(input, output) {
     const dynamodbResponses = await queryInput(input);
     const newResponses = uniq(dynamodbResponses.concat(output));
 
-    await updateInput(input, newResponses);
+    return await updateInput(input, newResponses);
 }
 
 async function deleteAIResponse(input, output) {
     const dynamodbResponses = await queryInput(input);
-    let newResponses = without(dynamodbResponses, output);
+    const newResponses = without(dynamodbResponses, output);
+
     if (isEmpty(newResponses)) {
-        newResponses = newResponses.concat(input.replace(/\?/g, '!'));
+        log(`DynamoDB response for input "${input}" is empty after deletion. Will delete the entry for input "${input}"`);
+        return await deleteInput(input);
     }
 
-    await updateInput(input, newResponses);
+    return await updateInput(input, newResponses);
 }
 
 async function queryInput(input) {
     const queryParams = {
         ExpressionAttributeValues: {
-            ":v1": {
+            ':v1': {
                 S: input
             }
         },
-        KeyConditionExpression: "Question = :v1",
-        ProjectionExpression: "Answers",
+        KeyConditionExpression: 'Question = :v1',
+        ProjectionExpression: 'Answers',
         TableName: 'Conversation'
     };
     const dynamodbResponses = await new Promise((resolve, reject) => {
@@ -87,16 +87,16 @@ async function queryInput(input) {
 async function updateInput(input, newResponses) {
     const updateParams = {
         ExpressionAttributeValues: {
-            ":v1": {
+            ':v1': {
                 SS: newResponses
             }
         },
         Key: {
-            "Question": {
+            'Question': {
                 S: input
             }
         },
-        UpdateExpression: "SET Answers = :v1",
+        UpdateExpression: 'SET Answers = :v1',
         TableName: 'Conversation'
     };
     await new Promise((resolve, reject) => {
@@ -109,6 +109,85 @@ async function updateInput(input, newResponses) {
         });
     });
     return log(`Dynamodb responses for input "${input}" were updated to "${JSON.stringify(newResponses)}"`);
+}
+
+async function deleteInput(input) {
+    const deleteParams = {
+        Key: {
+            'Question': {
+                S: input
+            }
+        },
+        TableName: 'Conversation'
+    };
+    await new Promise((resolve, reject) => {
+        dynamodb.deleteItem(deleteParams, (error) => {
+            if (error) {
+                log(error);
+                reject(error);
+            }
+            resolve();
+        });
+    });
+    return log(`Dynamodb responses for input "${input}" were deleted`);
+}
+
+async function scanExistingQuestions() {
+    const scanParams = {
+        ProjectionExpression: 'Question',
+        TableName: 'Conversation'
+    };
+    const existingQuestions = await new Promise((resolve, reject) => {
+        dynamodb.scan(scanParams, (error, data) => {
+            if (error) {
+                log(error);
+                reject(error);
+            }
+            const responses = data.Items.map((item) => item.Question.S);
+            resolve(responses);
+        });
+    });
+    log(`Found ${existingQuestions.length} existing questions from dynamodb`);
+    return existingQuestions;
+}
+
+async function findMostSimilarQuestion(input) {
+    const existingQuestions = await scanExistingQuestions();
+
+    const sortedExistingQuestions = existingQuestions
+        .map((question) => {
+            return {
+                question: question,
+                editDistance: getEditDistance(question, input)
+            };
+        })
+        .sort((a, b) => {return a.editDistance - b.editDistance;});
+
+    const mostSimilarQuestion = sortedExistingQuestions[0].question;
+    const smallestEditDistance = sortedExistingQuestions[0].editDistance;
+    log(`Across all ${existingQuestions.length} existing questions, "${mostSimilarQuestion}" has the smallest edit distance (${smallestEditDistance}) to input "${input}"`);
+    return mostSimilarQuestion;
+}
+
+// https://leetcode.com/problems/edit-distance/discuss/662447/JavaScript-simple-dp
+function getEditDistance(w1, w2) {
+    const l1 = w1.length;
+    const l2 = w2.length;
+    const dp = Array.from({length: l1+1}, () => Array.from({length: l2+1}));
+
+    for (let row = 0; row <= l1; row++) dp[row][0] = row;
+    for (let col = 0; col <= l2; col++) dp[0][col] = col;
+    for (let row = 1; row <= l1; row++) {
+        for (let col = 1; col <= l2; col++) {
+            dp[row][col] = Math.min(
+                dp[row-1][col] + 1,
+                dp[row][col-1] + 1,
+                dp[row-1][col-1] + ((w1[row-1] === w2[col-1]) ? 0 : 1)
+            );
+        }
+    }
+
+    return dp[l1][l2];
 }
 
 function getResponsePayload(text) {
