@@ -1,7 +1,8 @@
 const AWS = require('aws-sdk');
 const dynamodb = new AWS.DynamoDB();
 const sns = new AWS.SNS({region: 'us-east-1'});
-const {isEmpty, random, without, uniq} = require('lodash');
+const {isEmpty, random, without, uniq, find} = require('lodash');
+const {SymbolRegex, Chinese_Blacklist, Chinese_Blacklist_Response, English_Blacklist, English_Blacklist_Response} = require('./constants');
 
 exports.handler = async (event) => {
     log(event);
@@ -39,6 +40,17 @@ exports.handler = async (event) => {
 };
 
 async function getAIResponse(input) {
+    const chineseBlacklistedWord = find(Chinese_Blacklist, (blacklistedWord) => input.replace(SymbolRegex, '').includes(blacklistedWord));
+    if (chineseBlacklistedWord) {
+        log(`Found Chinese blacklisted word "${chineseBlacklistedWord}"`);
+        return getRandomFromList(Chinese_Blacklist_Response).replace(/{{blacklistedWord}}/g, chineseBlacklistedWord);
+    }
+    const englishBlacklistedWord = find(English_Blacklist, (blacklistedWord) => input.toLowerCase().replace(SymbolRegex, '').includes(blacklistedWord));
+    if (englishBlacklistedWord) {
+        log(`Found English blacklisted word "${englishBlacklistedWord}"`);
+        return getRandomFromList(English_Blacklist_Response).replace(/{{blacklistedWord}}/g, englishBlacklistedWord);
+    }
+
     let dynamodbResponses = await queryInput(input);
 
     if (isEmpty(dynamodbResponses)) {
@@ -47,10 +59,7 @@ async function getAIResponse(input) {
         dynamodbResponses = await queryInput(mostSimilarQuestion);
     }
 
-    const randomNumber = random(dynamodbResponses.length-1);
-    const output = dynamodbResponses[randomNumber];
-    log(`Pick the ${randomNumber}-th value from the list "${output}" as the output`);
-    return output;
+    return getRandomFromList(dynamodbResponses);
 }
 
 async function setAIResponse(input, output) {
@@ -244,4 +253,11 @@ async function sendMessage(message, target) {
         });
     });
     return log(`Sent message "${message}" to target "${target}"`);
+}
+
+function getRandomFromList(list) {
+    const randomIndex = random(list.length-1);
+    const pickedValue = list[randomIndex];
+    log(`Pick the ${randomIndex+1}-th value (${pickedValue}) from the list "${list}"`);
+    return pickedValue;
 }
