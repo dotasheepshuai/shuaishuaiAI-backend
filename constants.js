@@ -13,5 +13,28 @@ module.exports = {
         'Are you trying to make me angry by saying {{blacklistedWord}}?',
         'I\'d like to warn you for the last time - DO NOT SAY {{blacklistedWord}}!',
         'Say {{blacklistedWord}} again, you are done.'
+    ],
+    // Keep in sync with frontend
+    Anniversaries: [
+        {
+            name: 'Shuaishuai Birthday',
+            date: '1991-12-19'
+        },
+        {
+            name: 'Fatsheep Birthday',
+            date: '1992-12-17'
+        },
+        {
+            name: 'First Conversation Day',
+            date: '2020-04-28'
+        },
+        {
+            name: 'Version One Launch Day',
+            date: '2020-06-09'
+        },
+        {
+            name: 'First Times Day',
+            date: '2020-12-18'
+        }
     ]
 };

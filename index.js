@@ -1,16 +1,31 @@
 const AWS = require('aws-sdk');
 const dynamodb = new AWS.DynamoDB();
 const sns = new AWS.SNS({region: 'us-east-1'});
-const {isEmpty, random, without, uniq, find} = require('lodash');
-const {SymbolRegex, Chinese_Blacklist, Chinese_Blacklist_Response, English_Blacklist, English_Blacklist_Response} = require('./constants');
+const {isEmpty, random, without, uniq, find, filter} = require('lodash');
+const moment = require('moment');
+const settle = require('promise-settle');
+const {
+    SymbolRegex,
+    Chinese_Blacklist,
+    Chinese_Blacklist_Response,
+    English_Blacklist,
+    English_Blacklist_Response,
+    Anniversaries
+} = require('./constants');
 
 exports.handler = async (event) => {
     log(event);
-    const type = event.queryStringParameters.type;
-    const input = event.queryStringParameters.input;
-    const output = event.queryStringParameters.output;
-    const conversation = event.queryStringParameters.conversation;
-    const phone = event.queryStringParameters.phone;
+
+    if (event.checkAnniversaries) {
+        return await checkAnniversaries();
+    }
+
+    const queryParams = event.queryStringParameters || {};
+    const type = queryParams.type;
+    const input = queryParams.input;
+    const output = queryParams.output;
+    const conversation = queryParams.conversation;
+    const phone = queryParams.phone;
 
     if (event.httpMethod === 'GET') {
         if (type === 'getairesponse') {
@@ -273,4 +288,26 @@ function getRandomFromList(list) {
     const pickedValue = list[randomIndex];
     log(`Pick the ${randomIndex+1}-th value (${pickedValue}) from the list "${list}"`);
     return pickedValue;
+}
+
+async function checkAnniversaries() {
+    const anniversaries = filter(Anniversaries, (anniversary) => {
+        const historyMoment = moment(anniversary.date);
+        const currentMoment = moment();
+        return (
+            (historyMoment.month() === currentMoment.month()) &&
+            (historyMoment.date() === currentMoment.date())
+        );
+    });
+    anniversaries.forEach((anniversary) => {
+        const historyMoment = moment(anniversary.date);
+        const currentMoment = moment();
+        anniversary.years = currentMoment.year() - historyMoment.year();
+    });
+    log(`Found ${anniversaries.length} anniversaries`);
+    await settle(anniversaries.map(async (anniversary) => {
+        const message = `Check out the Anniversary page on shuaishuaiai.com for the ${anniversary.years+1}-th ${anniversary.name}!`;
+        await sendMessage(message, '+13522269680');
+        await sendMessage(message, '+12488027791');
+    }));
 }
