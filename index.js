@@ -13,8 +13,17 @@ exports.handler = async (event) => {
     const phone = event.queryStringParameters.phone;
 
     if (event.httpMethod === 'GET') {
-        const response = await getAIResponse(input);
-        return getResponsePayload(response);
+        if (type === 'getairesponse') {
+            const response = await getAIResponse(input);
+            return getResponsePayload(response);
+
+        } else if (type === 'getfirsttimes') {
+            const response = await getFirstTimes(input);
+            return getResponsePayload(response);
+
+        } else {
+            return log(`type "${type}" is not supported`);
+        }
 
     } else if (event.httpMethod === 'POST') {
         if (type === 'setairesponse') {
@@ -60,6 +69,10 @@ async function getAIResponse(input) {
     }
 
     return getRandomFromList(dynamodbResponses);
+}
+
+async function getFirstTimes(input) {
+    return await queryInput(input);
 }
 
 async function setAIResponse(input, output) {
